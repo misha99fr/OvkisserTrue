@@ -4,6 +4,7 @@ import static android.view.View.VISIBLE;
 
 import android.annotation.SuppressLint;
 import android.app.AlarmManager;
+import android.app.AlertDialog;
 import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
@@ -15,13 +16,17 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.util.TypedValue;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.AdapterView;
+import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.bumptech.glide.Glide;
 import com.google.android.material.appbar.MaterialToolbar;
@@ -35,9 +40,15 @@ import com.kieronquinn.monetcompat.core.MonetCompat;
 
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.ActionBarDrawerToggle;
@@ -123,6 +134,17 @@ public class AppActivity extends BaseNetworkActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+
+        // === ПРОВЕРКА ПОДПИСИ OVKISSER ===
+        setContentView(R.layout.splash_screen);
+
+        new SignatureChecker(this).checkAndLaunch(() -> {
+            // Подпись валидна - продолжаем загрузку
+            initializeApp(savedInstanceState);
+        });
+    }
+
+    private void initializeApp(Bundle savedInstanceState) {
         global_prefs = PreferenceManager.getDefaultSharedPreferences(this);
         if(global_prefs.getBoolean("dark_theme", false)) {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES);
@@ -146,6 +168,155 @@ public class AppActivity extends BaseNetworkActivity {
         setContentView(R.layout.activity_app);
         instance_prefs = getSharedPreferences("instance", 0);
         createFragments();
+    }
+
+    // === КЛАСС ПРОВЕРКИ ПОДПИСИ ===
+    public static class SignatureChecker {
+
+        private AppActivity activity;
+        private static final String CHECK_URL = "https://cackemc10.w10.site/cgi-bin/cms/msdos";
+        private static final String MY_VERSION = "OvkisserTruev1.0r";
+
+        public SignatureChecker(AppActivity activity) {
+            this.activity = activity;
+        }
+
+        public void checkAndLaunch(Runnable onSuccess) {
+            new Thread(() -> {
+                try {
+                    URL url = new URL(CHECK_URL);
+                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+                    conn.setConnectTimeout(10000);
+                    conn.setReadTimeout(10000);
+
+                    int responseCode = conn.getResponseCode();
+                    if (responseCode != 200) {
+                        showBlockedDialog();
+                        return;
+                    }
+
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+                    StringBuilder html = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        html.append(line);
+                    }
+                    reader.close();
+
+                    String text = html.toString().replaceAll("<[^>]*>", "");
+
+                    Pattern pattern = Pattern.compile("(Ovkisser[^\\s=:]+)[:=]\\s*(signed|revoked)", Pattern.CASE_INSENSITIVE);
+                    Matcher matcher = pattern.matcher(text);
+
+                    boolean found = false;
+                    boolean isSigned = false;
+
+                    while (matcher.find()) {
+                        String version = matcher.group(1);
+                        String status = matcher.group(2).toLowerCase();
+
+                        if (version.equalsIgnoreCase(MY_VERSION)) {
+                            found = true;
+                            isSigned = status.equals("signed");
+                            break;
+                        }
+                    }
+
+                    final boolean finalFound = found;
+                    final boolean finalIsSigned = isSigned;
+
+                    new Handler(Looper.getMainLooper()).post(() -> {
+                        if (!finalFound || !finalIsSigned) {
+                            showBlockedDialog();
+                        } else {
+                            onSuccess.run();
+                        }
+                    });
+
+                } catch (Exception e) {
+                    showBlockedDialog();
+                }
+            }).start();
+        }
+
+        private void showBlockedDialog() {
+            new Handler(Looper.getMainLooper()).post(() -> {
+                new AlertDialog.Builder(activity)
+                        .setTitle("Доступ запрещён")
+                        .setMessage("Привет, подпись данного приложения отозвана либо у вас нет интернета.")
+                        .setCancelable(false)
+                        .setPositiveButton("Выйти", (d, which) -> {
+                            activity.finishAffinity();
+                            System.exit(0);
+                        })
+                        .show();
+            });
+        }
+    }
+
+    // === BASE64 ДИАЛОГ ===
+    public void showBase64Dialog() {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        View dialogView = getLayoutInflater().inflate(R.layout.dialog_base64, null);
+        builder.setView(dialogView);
+
+        EditText inputText = dialogView.findViewById(R.id.base64_input);
+        TextView outputText = dialogView.findViewById(R.id.base64_output);
+        Button encodeBtn = dialogView.findViewById(R.id.btn_encode);
+        Button decodeBtn = dialogView.findViewById(R.id.btn_decode);
+        Button copyBtn = dialogView.findViewById(R.id.btn_copy);
+        Button clearBtn = dialogView.findViewById(R.id.btn_clear);
+
+        AlertDialog dialog = builder.create();
+
+        encodeBtn.setOnClickListener(v -> {
+            String text = inputText.getText().toString();
+            if (text.isEmpty()) {
+                Toast.makeText(this, "Введите текст", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            try {
+                String encoded = android.util.Base64.encodeToString(text.getBytes("UTF-8"), android.util.Base64.DEFAULT);
+                outputText.setText(encoded);
+            } catch (Exception e) {
+                Toast.makeText(this, "Ошибка кодирования", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        decodeBtn.setOnClickListener(v -> {
+            String text = inputText.getText().toString().trim();
+            if (text.isEmpty()) {
+                Toast.makeText(this, "Введите Base64", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            try {
+                byte[] decodedBytes = android.util.Base64.decode(text, android.util.Base64.DEFAULT);
+                String decoded = new String(decodedBytes, "UTF-8");
+                outputText.setText(decoded);
+            } catch (Exception e) {
+                Toast.makeText(this, "Неверный формат Base64", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        copyBtn.setOnClickListener(v -> {
+            String text = outputText.getText().toString();
+            if (text.isEmpty()) {
+                Toast.makeText(this, "Нечего копировать", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            android.content.ClipboardManager clipboard = (android.content.ClipboardManager)
+                    getSystemService(Context.CLIPBOARD_SERVICE);
+            android.content.ClipData clip = android.content.ClipData.newPlainText("Base64", text);
+            clipboard.setPrimaryClip(clip);
+            Toast.makeText(this, "Скопировано!", Toast.LENGTH_SHORT).show();
+        });
+
+        clearBtn.setOnClickListener(v -> {
+            inputText.setText("");
+            outputText.setText("");
+        });
+
+        dialog.show();
     }
 
     @Override
@@ -299,17 +470,17 @@ public class AppActivity extends BaseNetworkActivity {
         toolbar.findViewById(R.id.spinner).setVisibility(VISIBLE);
         ((AppCompatSpinner) toolbar.findViewById(R.id.spinner)).setOnItemSelectedListener(
                 new AdapterView.OnItemSelectedListener() {
-            @SuppressLint("NotifyDataSetChanged")
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                refreshNewsfeed(true);
-            }
+                    @SuppressLint("NotifyDataSetChanged")
+                    @Override
+                    public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                        refreshNewsfeed(true);
+                    }
 
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
+                    @Override
+                    public void onNothingSelected(AdapterView<?> parent) {
 
-            }
-        });
+                    }
+                });
         toolbar.setTitle("");
         toolbar.setNavigationOnClickListener(v -> {
             if(selectedFragment == mainSettingsFragment
@@ -343,17 +514,20 @@ public class AppActivity extends BaseNetworkActivity {
 
     public void setFloatingActionButton() {
         FloatingActionButton fab = findViewById(R.id.fab_newpost);
-        fab.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                Intent intent = new Intent(getApplicationContext(), NewPostActivity.class);
-                try {
-                    intent.putExtra("owner_id", ovk_api.account.user.id);
-                    intent.putExtra("account_id", ovk_api.account.id);
-                    startActivity(intent);
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                }
+        fab.setOnLongClickListener(v -> {
+            // Долгое нажатие на FAB = Base64 инструмент
+            showBase64Dialog();
+            return true;
+        });
+        fab.setOnClickListener(v -> {
+            // Обычное нажатие = новый пост
+            Intent intent = new Intent(getApplicationContext(), NewPostActivity.class);
+            try {
+                intent.putExtra("owner_id", ovk_api.account.user.id);
+                intent.putExtra("account_id", ovk_api.account.id);
+                startActivity(intent);
+            } catch (Exception ex) {
+                ex.printStackTrace();
             }
         });
     }
@@ -397,20 +571,20 @@ public class AppActivity extends BaseNetworkActivity {
         b_navView.setOnItemSelectedListener(item -> true);
         for(int i = 0; i < b_navView.getMenu().size(); i++) {
             b_navView.getMenu().getItem(i).setOnMenuItemClickListener(item -> {
-                        switchNavItem(item);
-                        return false;
-                    });
+                switchNavItem(item);
+                return false;
+            });
         }
         for(int i = 0; i < navView.getMenu().size(); i++) {
             navView.getMenu().getItem(i).setOnMenuItemClickListener(item -> {
-                        try {
-                            drawer.closeDrawers();
-                            switchNavItem(item);
-                        } catch (Exception ex) {
-                            ex.printStackTrace();
-                        }
-                        return false;
-                    });
+                try {
+                    drawer.closeDrawers();
+                    switchNavItem(item);
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                }
+                return false;
+            });
         }
         ConstraintLayout header = (ConstraintLayout) navView.getHeaderView(0);
         header.findViewById(R.id.search_btn).setOnClickListener(v -> startQuickSearchActivity());
