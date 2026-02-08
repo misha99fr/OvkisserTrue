@@ -94,6 +94,7 @@ public class AuthActivity extends BaseNetworkActivity {
             }
         }
         setAppBar();
+        setStatusBarColor(R.color.backgroundColor);
     }
 
     public void restart() {
@@ -144,7 +145,7 @@ public class AuthActivity extends BaseNetworkActivity {
         if(instance.equals("vk.com") || instance.equals("vk.ru") || instance.equals("vkontakte.ru")) {
             ft = getSupportFragmentManager().beginTransaction();
             ft.replace(R.id.dynamic_fragment_layout, new AuthFragment());
-            instance = "ovk.to";
+            instance = "openvk.su";
             ft.commit();
             authFragment.setAuthorizationData(instance, username, password);
             showOvkWarning();

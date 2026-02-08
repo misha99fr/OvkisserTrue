@@ -56,6 +56,9 @@ public class NewPostActivity extends BaseNetworkActivity {
 
         isDarkTheme = global_prefs.getBoolean("dark_theme", false);
         statusEditText = findViewById(R.id.status_edit);
+
+        setStatusBarColorAttribute(androidx.appcompat.R.attr.colorPrimaryDark);
+
         if (savedInstanceState == null) {
             Bundle extras = getIntent().getExtras();
             if (extras == null) {
@@ -107,20 +110,12 @@ public class NewPostActivity extends BaseNetworkActivity {
         toolbar = findViewById(R.id.app_toolbar);
         toolbar.setNavigationIcon(R.drawable.ic_arrow_back);
         toolbar.setTitle(getResources().getString(R.string.new_post_title));
-        toolbar.setNavigationOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                onBackPressed();
+        toolbar.setNavigationOnClickListener(view -> onBackPressed());
+        toolbar.setOnMenuItemClickListener(item -> {
+            if(item.getItemId() == R.id.send) {
+                sendPost();
             }
-        });
-        toolbar.setOnMenuItemClickListener(new Toolbar.OnMenuItemClickListener() {
-            @Override
-            public boolean onMenuItemClick(MenuItem item) {
-                if(item.getItemId() == R.id.send) {
-                    sendPost();
-                }
-                return false;
-            }
+            return false;
         });
     }
 
